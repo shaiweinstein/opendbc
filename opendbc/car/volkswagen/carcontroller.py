@@ -32,10 +32,16 @@ class CarController(CarControllerBase):
     self.hca_frame_timer_running = 0
     self.hca_frame_same_torque = 0
 
+    self.eps_timer_workaround = True
+    self.hca_frame_timer_running = 0
+    self.hca_frame_timer_resetting = 0
+
+
   def update(self, CC, CS, now_nanos):
     actuators = CC.actuators
     hud_control = CC.hudControl
     can_sends = []
+    output_torque = 0
 
     # **** Steering Controls ************************************************ #
 
@@ -61,12 +67,28 @@ class CarController(CarControllerBase):
         else:
           self.hca_frame_same_torque = 0
         hca_enabled = abs(apply_torque) > 0
+        if self.eps_timer_workaround and self.hca_frame_timer_running >= self.CCP.STEER_TIME_BM / DT_CTRL:
+          if abs(apply_torque) <= self.CCP.STEER_LOW_TORQUE:
+            self.hca_frame_low_torque += self.CCP.STEER_STEP
+            if self.hca_frame_low_torque >= self.CCP.STEER_TIME_LOW_TORQUE / DT_CTRL:
+              hca_enabled = False
+          else:
+            self.hca_frame_low_torque = 0
+            if self.hca_frame_timer_resetting > 0:
+              apply_torque = 0
       else:
+        self.hca_frame_low_torque = 0
         hca_enabled = False
         apply_torque = 0
 
       if not hca_enabled:
         self.hca_frame_timer_running = 0
+      else:
+        apply_torque = 0
+        self.hca_frame_timer_resetting += self.CCP.STEER_STEP
+        if self.hca_frame_timer_resetting >= 1.1 / DT_CTRL or not self.eps_timer_workaround:
+          self.hca_frame_timer_running = 0
+          apply_torque = 0
 
       self.eps_timer_soft_disable_alert = self.hca_frame_timer_running > self.CCP.STEER_TIME_ALERT / DT_CTRL
       self.apply_torque_last = apply_torque
