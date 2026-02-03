@@ -32,11 +32,11 @@ class CarController(CarControllerBase):
     self.hca_frame_timer_running = 0
     self.hca_frame_same_torque = 0
 
-    # EPS timer reset workaround for PQ and MLB platforms
+    # EPS timer reset workaround for MLB platforms (Porsche Macan, Audi, etc.)
     # MQB racks reset the timer after a single frame of HCA disabled.
-    # PQ and MLB racks need > 1 second to reset; we try to reset when
+    # MLB racks need > 1 second to reset; we try to reset when
     # engaged for a long time and torque output is currently low.
-    self.eps_timer_workaround = CP.flags & (VolkswagenFlags.PQ | VolkswagenFlags.MLB)
+    self.eps_timer_workaround = bool(CP.flags & VolkswagenFlags.MLB)
     self.hca_frame_timer_resetting = 0
     self.hca_frame_low_torque = 0
 
@@ -57,10 +57,10 @@ class CarController(CarControllerBase):
       #   * Don't send uninterrupted steering for > 360 seconds
       # MQB racks reset the uninterrupted steering timer after a single frame
       # of HCA disabled; this is done whenever output happens to be zero.
-      # PQ, and MLB racks need > 1 second to reset; try to reset
-      # if engaged for a long time and torque output is currently low. Resets
-      # are aborted early if torque demand rises. Long resets, completed or
-      # not, need apply_torque reset to 0 on exit due to rate limit safety.
+      # MLB racks need > 1 second to reset; try to reset if engaged for a long
+      # time and torque output is currently low. Resets are aborted early if
+      # torque demand rises. Long resets, completed or not, need apply_torque
+      # reset to 0 on exit due to rate limit safety.
 
       if CC.latActive:
         new_torque = int(round(actuators.torque * self.CCP.STEER_MAX))
@@ -75,7 +75,7 @@ class CarController(CarControllerBase):
           self.hca_frame_same_torque = 0
         hca_enabled = abs(apply_torque) > 0
 
-        # EPS timer reset workaround for PQ and MLB
+        # EPS timer reset workaround for MLB platforms
         if self.eps_timer_workaround and self.hca_frame_timer_running >= self.CCP.STEER_TIME_BM / DT_CTRL:
           if abs(apply_torque) <= self.CCP.STEER_LOW_TORQUE:
             self.hca_frame_low_torque += self.CCP.STEER_STEP
