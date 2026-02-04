@@ -19,6 +19,7 @@ class CarState(CarStateBase):
     self.upscale_lead_car_signal = False
     self.eps_stock_values = False
     self.acc_type = 0
+    self.CC = None  # Will be set by CarInterface after initialization
 
   def update_button_enable(self, buttonEvents: list[structs.CarState.ButtonEvent]):
     if not self.CP.pcmCruise:
@@ -135,6 +136,10 @@ class CarState(CarStateBase):
     ret.buttonEvents = self.create_button_events(pt_cp, self.CCP.BUTTONS)
 
     ret.lowSpeedAlert = self.update_low_speed_alert(ret.vEgo)
+
+    # Read MLB EPS timer reset status from CarController (set by CarInterface)
+    if self.CC is not None:
+      ret.steerTimerResetActive = self.CC.eps_timer_reset_active
 
     self.frame += 1
     return ret

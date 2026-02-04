@@ -11,6 +11,11 @@ class CarInterface(CarInterfaceBase):
   DRIVABLE_GEARS = (structs.CarState.GearShifter.eco, structs.CarState.GearShifter.sport,
                     structs.CarState.GearShifter.manumatic)
 
+  def __init__(self, CP: structs.CarParams):
+    super().__init__(CP)
+    # Link CarController to CarState so CS can read CC flags (e.g., eps_timer_reset_active)
+    self.CS.CC = self.CC
+
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate: CAR, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "volkswagen"

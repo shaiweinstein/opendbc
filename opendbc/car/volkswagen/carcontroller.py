@@ -39,6 +39,7 @@ class CarController(CarControllerBase):
     self.eps_timer_workaround = bool(CP.flags & VolkswagenFlags.MLB)
     self.hca_frame_timer_resetting = 0
     self.hca_frame_low_torque = 0
+    self.eps_timer_reset_active = False  # Flag for UI to show reset notification
 
   def update(self, CC, CS, now_nanos):
     actuators = CC.actuators
@@ -94,12 +95,16 @@ class CarController(CarControllerBase):
       if hca_enabled:
         output_torque = apply_torque
         self.hca_frame_timer_resetting = 0
+        self.eps_timer_reset_active = False
       else:
         output_torque = 0
         self.hca_frame_timer_resetting += self.CCP.STEER_STEP
+        # Flag active during MLB reset (not for MQB single-frame resets)
+        self.eps_timer_reset_active = self.eps_timer_workaround and self.hca_frame_timer_resetting < self.CCP.STEER_TIME_RESET / DT_CTRL
         if self.hca_frame_timer_resetting >= self.CCP.STEER_TIME_RESET / DT_CTRL or not self.eps_timer_workaround:
           self.hca_frame_timer_running = 0
           apply_torque = 0
+          self.eps_timer_reset_active = False
 
       self.eps_timer_soft_disable_alert = self.hca_frame_timer_running > self.CCP.STEER_TIME_ALERT / DT_CTRL
       self.apply_torque_last = apply_torque

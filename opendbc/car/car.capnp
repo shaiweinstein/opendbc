@@ -205,6 +205,7 @@ struct CarState {
   vehicleSensorsInvalid @52 :Bool;  # invalid steering angle readings, etc.
   lowSpeedAlert @56 :Bool;  # lost steering control due to a dynamic min steering speed
   blockPcmEnable @60 :Bool;  # whether to allow PCM to enable this frame
+  steerTimerResetActive @61 :Bool;  # MLB EPS timer reset in progress (brief steering pause)
 
   # cruise state
   cruiseState @10 :CruiseState;
