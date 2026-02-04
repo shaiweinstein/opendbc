@@ -100,7 +100,7 @@ class CarController(CarControllerBase):
         output_torque = 0
         self.hca_frame_timer_resetting += self.CCP.STEER_STEP
         # Flag active during MLB reset (not for MQB single-frame resets)
-        self.eps_timer_reset_active = self.eps_timer_workaround and self.hca_frame_timer_resetting < self.CCP.STEER_TIME_RESET / DT_CTRL
+        self.eps_timer_reset_active = self.eps_timer_workaround and self.hca_frame_timer_resetting > 0 and self.hca_frame_timer_resetting < self.CCP.STEER_TIME_RESET / DT_CTRL
         if self.hca_frame_timer_resetting >= self.CCP.STEER_TIME_RESET / DT_CTRL or not self.eps_timer_workaround:
           self.hca_frame_timer_running = 0
           apply_torque = 0
