@@ -6,7 +6,6 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.volkswagen import mlbcan, mqbcan, pqcan
 from opendbc.car.volkswagen.values import CanBus, CarControllerParams, VolkswagenFlags
-from time import monotonic
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
@@ -40,7 +39,6 @@ class CarController(CarControllerBase):
     self.eps_timer_workaround = bool(CP.flags & VolkswagenFlags.MLB)
     self.hca_frame_timer_resetting = 0
     self.hca_frame_low_torque = 0
-    self.lkas_reset_end_time = 0.0
 
   def update(self, CC, CS, now_nanos):
     actuators = CC.actuators
@@ -98,8 +96,6 @@ class CarController(CarControllerBase):
         self.hca_frame_timer_resetting = 0
       else:
         output_torque = 0
-        if self.hca_frame_timer_resetting == 0:
-          self.lkas_reset_end_time = monotonic() + 1.1
         self.hca_frame_timer_resetting += self.CCP.STEER_STEP
         if self.hca_frame_timer_resetting >= self.CCP.STEER_TIME_RESET / DT_CTRL or not self.eps_timer_workaround:
           self.hca_frame_timer_running = 0
@@ -165,13 +161,7 @@ class CarController(CarControllerBase):
     new_actuators = actuators.as_builder()
     new_actuators.torque = output_torque / self.CCP.STEER_MAX
     new_actuators.torqueOutputCan = self.apply_torque_last
-    CS.lkasResetActive = self.lkas_reset_active
 
     self.gra_acc_counter_last = CS.gra_stock_values["COUNTER"]
     self.frame += 1
     return new_actuators, can_sends
-
-
-  @property
-  def lkas_reset_active(self):
-    return monotonic() < self.lkas_reset_end_time
