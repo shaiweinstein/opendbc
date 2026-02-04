@@ -287,6 +287,10 @@ class CarState(CarStateBase):
     ret.cruiseState.standstill = self.CP.pcmCruise and self.esp_hold_confirmation
     ret.standstill = ret.vEgoRaw == 0
 
+    # Read MLB EPS timer reset status from CarController (set by CarInterface)
+    if self.CC is not None:
+      ret.steerTimerResetActive = self.CC.eps_timer_reset_active
+
     self.frame += 1
     return ret
 
