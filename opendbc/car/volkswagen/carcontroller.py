@@ -39,6 +39,7 @@ class CarController(CarControllerBase):
     self.eps_timer_workaround = bool(CP.flags & VolkswagenFlags.MLB)
     self.hca_frame_timer_resetting = 0
     self.hca_frame_low_torque = 0
+    self.eps_timer_reset_in_progress = False  # Track intentional reset (not just any HCA disable)
     self.eps_timer_reset_active = False  # Flag for UI to show reset notification
 
   def update(self, CC, CS, now_nanos):
@@ -82,10 +83,11 @@ class CarController(CarControllerBase):
             self.hca_frame_low_torque += self.CCP.STEER_STEP
             if self.hca_frame_low_torque >= self.CCP.STEER_TIME_LOW_TORQUE / DT_CTRL:
               hca_enabled = False
+              self.eps_timer_reset_in_progress = True  # Mark intentional reset
           else:
             self.hca_frame_low_torque = 0
             if self.hca_frame_timer_resetting > 0:
-              # Reset aborted early due to torque demand rising — zero apply_torque for rate limit safety
+              # Reset aborted early due to torque demand rising - zero apply_torque for rate limit safety
               apply_torque = 0
       else:
         # Lateral not active -> clear EPS timer workaround state so it doesn't carry over between engagements
@@ -93,6 +95,7 @@ class CarController(CarControllerBase):
         self.hca_frame_timer_resetting = 0
         self.hca_frame_low_torque = 0
         self.hca_frame_same_torque = 0
+        self.eps_timer_reset_in_progress = False
         self.eps_timer_reset_active = False
         self.eps_timer_soft_disable_alert = False
         hca_enabled = False
@@ -101,15 +104,17 @@ class CarController(CarControllerBase):
       if hca_enabled:
         output_torque = apply_torque
         self.hca_frame_timer_resetting = 0
+        self.eps_timer_reset_in_progress = False
         self.eps_timer_reset_active = False
       else:
         output_torque = 0
         self.hca_frame_timer_resetting += self.CCP.STEER_STEP
-        # Flag active during MLB reset (not for MQB single-frame resets)
-        self.eps_timer_reset_active = self.eps_timer_workaround and self.hca_frame_timer_resetting > 0 and self.hca_frame_timer_resetting < self.CCP.STEER_TIME_RESET / DT_CTRL
+        # Flag active only during intentional MLB reset (not just any HCA disable)
+        self.eps_timer_reset_active = self.eps_timer_reset_in_progress and self.hca_frame_timer_resetting < self.CCP.STEER_TIME_RESET / DT_CTRL
         if self.hca_frame_timer_resetting >= self.CCP.STEER_TIME_RESET / DT_CTRL or not self.eps_timer_workaround:
           self.hca_frame_timer_running = 0
           apply_torque = 0
+          self.eps_timer_reset_in_progress = False
           self.eps_timer_reset_active = False
 
       self.eps_timer_soft_disable_alert = self.hca_frame_timer_running > self.CCP.STEER_TIME_ALERT / DT_CTRL
