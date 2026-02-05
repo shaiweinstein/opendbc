@@ -88,7 +88,13 @@ class CarController(CarControllerBase):
               # Reset aborted early due to torque demand rising — zero apply_torque for rate limit safety
               apply_torque = 0
       else:
+        # Lateral not active -> clear EPS timer workaround state so it doesn't carry over between engagements
+        self.hca_frame_timer_running = 0
+        self.hca_frame_timer_resetting = 0
         self.hca_frame_low_torque = 0
+        self.hca_frame_same_torque = 0
+        self.eps_timer_reset_active = False
+        self.eps_timer_soft_disable_alert = False
         hca_enabled = False
         apply_torque = 0
 
