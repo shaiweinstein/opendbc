@@ -245,10 +245,13 @@ class CarState(CarStateBase):
 
     # ACC okay but disabled (1), ACC ready (2), a radar visibility or other fault/disruption (6 or 7)
     # currently regulating speed (3), driver accel override (4), brake only (5)
-    # TODO: get this from the drivetrain side instead, for openpilot long support later
-    ret.cruiseState.available = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (2, 3, 4, 5)
-    ret.cruiseState.enabled = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (3, 4, 5)
-    ret.accFaulted = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (6, 7)
+    if self.CP.pcmCruise:
+      ret.cruiseState.available = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (2, 3, 4, 5)
+      ret.cruiseState.enabled = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (3, 4, 5)
+      ret.accFaulted = ext_cp.vl["ACC_05"]["ACC_Status_ACC"] in (6, 7)
+    else:
+      # When using openpilot longitudinal, read main switch from LS_01
+      ret.cruiseState.available = bool(pt_cp.vl["LS_01"]["LS_Hauptschalter"])
 
     self.parse_mlb_mqb_steering_state(ret, pt_cp)
 
@@ -278,6 +281,12 @@ class CarState(CarStateBase):
     self.gra_stock_values = pt_cp.vl["LS_01"]
 
     ret.buttonEvents = self.create_button_events(pt_cp, self.CCP.BUTTONS)
+
+    # On some MLB stalks (e.g. Macan), Set and Accel share adjacent contacts and fire together.
+    # Filter out phantom accelCruise so it doesn't block initial engagement via resumeBlocked.
+    button_types = {b.type for b in ret.buttonEvents}
+    if ButtonType.setCruise in button_types and ButtonType.accelCruise in button_types:
+      ret.buttonEvents = [b for b in ret.buttonEvents if b.type != ButtonType.accelCruise]
 
     ret.cruiseState.standstill = self.CP.pcmCruise and self.esp_hold_confirmation
     ret.standstill = ret.vEgoRaw == 0

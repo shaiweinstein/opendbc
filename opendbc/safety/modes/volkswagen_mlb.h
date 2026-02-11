@@ -9,6 +9,9 @@ static safety_config volkswagen_mlb_init(uint16_t param) {
   static const CanMsg VOLKSWAGEN_MLB_STOCK_TX_MSGS[] = {{MSG_HCA_01, 0, 8, .check_relay = true}, {MSG_LDW_02, 0, 8, .check_relay = true},
                                                         {MSG_LS_01, 0, 4, .check_relay = false}, {MSG_LS_01, 2, 4, .check_relay = false}};
 
+  static const CanMsg VOLKSWAGEN_MLB_LONG_TX_MSGS[] = {{MSG_HCA_01, 0, 8, .check_relay = true}, {MSG_LDW_02, 0, 8, .check_relay = true},
+                                                       {MSG_ACC_02, 0, 8, .check_relay = true}, {MSG_ACC_05, 0, 8, .check_relay = true}};
+
   static RxCheck volkswagen_mlb_rx_checks[] = {
     // TODO: implement checksum validation
     {.msg = {{MSG_ESP_03, 0, 8, 50U, .ignore_checksum = true, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
@@ -19,10 +22,16 @@ static safety_config volkswagen_mlb_init(uint16_t param) {
     {.msg = {{MSG_LS_01, 0, 4, 10U, .ignore_checksum = true, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
   };
 
-  SAFETY_UNUSED(param);
   volkswagen_common_init();
 
-  return BUILD_SAFETY_CFG(volkswagen_mlb_rx_checks, VOLKSWAGEN_MLB_STOCK_TX_MSGS);
+#ifdef ALLOW_DEBUG
+  volkswagen_longitudinal = GET_FLAG(param, FLAG_VOLKSWAGEN_LONG_CONTROL);
+#else
+  SAFETY_UNUSED(param);
+#endif
+
+  return volkswagen_longitudinal ? BUILD_SAFETY_CFG(volkswagen_mlb_rx_checks, VOLKSWAGEN_MLB_LONG_TX_MSGS) : \
+                                   BUILD_SAFETY_CFG(volkswagen_mlb_rx_checks, VOLKSWAGEN_MLB_STOCK_TX_MSGS);
 }
 
 static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
@@ -44,6 +53,26 @@ static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
     }
 
     if (msg->addr == MSG_LS_01) {
+      if (volkswagen_longitudinal) {
+        // When using openpilot longitudinal, read ACC main switch from LS_01 (bus 0)
+        // instead of relying on ACC_05 from the stock radar (bus 2)
+        // Signal: LS_01.LS_Hauptschalter
+        acc_main_on = GET_BIT(msg, 12U);
+        if (!acc_main_on) {
+          controls_allowed = false;
+        }
+
+        // Enter controls on falling edge of Set or Resume with main switch on
+        // Signal: LS_01.LS_Tip_Setzen
+        // Signal: LS_01.LS_Tip_Wiederaufnahme
+        bool set_button = GET_BIT(msg, 16U);
+        bool resume_button = GET_BIT(msg, 19U);
+        if ((volkswagen_set_button_prev && !set_button) || (volkswagen_resume_button_prev && !resume_button)) {
+          controls_allowed = acc_main_on;
+        }
+        volkswagen_set_button_prev = set_button;
+        volkswagen_resume_button_prev = resume_button;
+      }
       // Always exit controls on rising edge of Cancel
       // Signal: LS_01.LS_Abbrechen
       if (GET_BIT(msg, 13U)) {
@@ -67,20 +96,22 @@ static void volkswagen_mlb_rx_hook(const CANPacket_t *msg) {
   }
 
   if (msg->bus == 2U) {
-    // TODO: See if there's a bus-agnostic TSK message we can use instead
     if (msg->addr == MSG_ACC_05) {
-      // When using stock ACC, enter controls on rising edge of stock ACC engage, exit on disengage
-      // Always exit controls on main switch off
       // Signal: ACC_05.ACC_Status_ACC
       int acc_status = (msg->data[7] & 0xEU) >> 1;
       bool cruise_engaged = (acc_status == 3) || (acc_status == 4) || (acc_status == 5);
-      acc_main_on = cruise_engaged || (acc_status == 2);
 
-      pcm_cruise_check(cruise_engaged);
+      if (!volkswagen_longitudinal) {
+        // When using stock ACC, enter controls on rising edge of stock ACC engage, exit on disengage
+        // Always exit controls on main switch off
+        acc_main_on = cruise_engaged || (acc_status == 2);
+        pcm_cruise_check(cruise_engaged);
 
-      if (!acc_main_on) {
-        controls_allowed = false;
+        if (!acc_main_on) {
+          controls_allowed = false;
+        }
       }
+      // When volkswagen_longitudinal, acc_main_on is set from LS_01.LS_Hauptschalter instead
     }
   }
 }
@@ -97,6 +128,14 @@ static bool volkswagen_mlb_tx_hook(const CANPacket_t *msg) {
     .type = TorqueDriverLimited,
   };
 
+  // longitudinal limits
+  // acceleration in m/s2 * 1000 to avoid floating point math
+  const LongitudinalLimits VOLKSWAGEN_MLB_LONG_LIMITS = {
+    .max_accel = 2000,
+    .min_accel = -3500,
+    .inactive_accel = 3010,  // VW sends one increment above the max range when inactive
+  };
+
   bool tx = true;
 
   // Safety check for HCA_01 Heading Control Assist torque
@@ -107,6 +146,15 @@ static bool volkswagen_mlb_tx_hook(const CANPacket_t *msg) {
     bool steer_req = (steer_status == 5) || (steer_status == 7);
 
     if (steer_torque_cmd_checks(desired_torque, steer_req, VOLKSWAGEN_MLB_STEERING_LIMITS)) {
+      tx = false;
+    }
+  }
+
+  // Safety check for ACC_05 acceleration/deceleration request (primary long control message on MLB)
+  // Signal: ACC_05.ACC_Verz_anf (32|11@1+, scale 0.005, offset -7.22)
+  if (msg->addr == MSG_ACC_05) {
+    int desired_accel = ((((msg->data[5] & 0x7U) << 8) | msg->data[4]) * 5U) - 7220U;
+    if (longitudinal_accel_checks(desired_accel, VOLKSWAGEN_MLB_LONG_LIMITS)) {
       tx = false;
     }
   }
